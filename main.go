@@ -16,6 +16,7 @@ import (
 	"os"
 	"skygate/abi"
 	"strconv"
+	"time"
 
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
@@ -303,6 +304,7 @@ func dailyCheckIn(jwt string, targetNumber int) error {
 		}
 		log.Println("成功提交，TxHash: ", txhash)
 		checkInTimes++
+		time.Sleep(45 * time.Second)
 	}
 
 	return nil
