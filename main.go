@@ -4,13 +4,13 @@ import (
 	"bytes"
 	"context"
 	"crypto/ecdsa"
-	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"log"
 	"math/big"
+	"math/rand"
 	"mime/multipart"
 	"net/http"
 	"os"
@@ -27,11 +27,12 @@ import (
 )
 
 var (
-	privateKey *ecdsa.PrivateKey
-	eclient    *ethclient.Client
-	skygate    *abi.Abi
-	plusNumber int
-	maxTimes   int
+	privateKey  *ecdsa.PrivateKey
+	eclient     *ethclient.Client
+	skygate     *abi.Abi
+	skygateFarm *abi.Abi
+	plusNumber  int
+	maxTimes    int
 )
 
 func init() {
@@ -51,6 +52,12 @@ func init() {
 	}
 	address := common.HexToAddress("0x9465fe0e8cdf4e425e0c59b7caeccc1777dc6695")
 	skygate, err = abi.NewAbi(address, eclient)
+	if err != nil {
+		log.Fatalf("Failed to instantiate a Token contract: %v", err)
+	}
+
+	farmAddr := common.HexToAddress("0xd42126D46813472F83104811533c03c807E65435")
+	skygateFarm, err = abi.NewAbi(farmAddr, eclient)
 	if err != nil {
 		log.Fatalf("Failed to instantiate a Token contract: %v", err)
 	}
@@ -180,7 +187,7 @@ func login() (string, error) {
 	return jwt, nil
 }
 
-func signIn() (string, error) {
+func signIn(abi *abi.Abi, signInType *big.Int) (string, error) {
 	auth, err := bind.NewKeyedTransactorWithChainID(privateKey, big.NewInt(204))
 	if err != nil {
 		return "", err
@@ -189,7 +196,7 @@ func signIn() (string, error) {
 	auth.Value = big.NewInt(0)
 	auth.GasLimit = uint64(300000)
 
-	tx, err := skygate.Signin(auth, big.NewInt(1))
+	tx, err := skygate.Signin(auth, signInType)
 	if err != nil {
 		return "", err
 	}
@@ -289,7 +296,17 @@ func getCoinsNumber(jwt string) (int, error) {
 }
 
 func dailyCheckIn(jwt string, targetNumber int) error {
+	txhash, err := signIn(skygateFarm, big.NewInt(1))
+	if err != nil {
+		return err
+	}
+	log.Println("成功提交，TxHash: ", txhash)
+
 	for checkInTimes := 0; checkInTimes < maxTimes; {
+		src := rand.NewSource(time.Now().UnixNano())
+		r := rand.New(src)
+		randInt := r.Int63n(2) + 1
+		signInType := big.NewInt(randInt)
 		currentNumber, err := getCoinsNumber(jwt)
 		if err != nil {
 			continue
@@ -298,7 +315,7 @@ func dailyCheckIn(jwt string, targetNumber int) error {
 		if currentNumber >= targetNumber {
 			break
 		}
-		txhash, err := signIn()
+		txhash, err := signIn(skygate, signInType)
 		if err != nil {
 			continue
 		}
@@ -307,6 +324,10 @@ func dailyCheckIn(jwt string, targetNumber int) error {
 		time.Sleep(45 * time.Second)
 	}
 
+	err = checkIn(jwt)
+	if err != nil {
+		return err
+	}
 	return nil
 }
 
